@@ -38,10 +38,18 @@ def _is_rank0() -> bool:
     return not (torch.distributed.is_available() and torch.distributed.is_initialized()) or torch.distributed.get_rank() == 0
 
 
+def _unwrap_distributed(model: torch.nn.Module) -> torch.nn.Module:
+    # Support DeepSpeed/DP/DDP wrappers.
+    while hasattr(model, "module"):
+        model = getattr(model, "module")  # type: ignore[assignment]
+    return model
+
+
 def _unwrap_to_qwen_causal_lm(model: torch.nn.Module) -> torch.nn.Module:
+    model = _unwrap_distributed(model)
     base_model = getattr(model, "base_model", None)
     if base_model is not None and hasattr(base_model, "model"):
-        return base_model.model
+        return _unwrap_distributed(base_model.model)
     return model
 
 
@@ -107,6 +115,8 @@ class PointCloudVisualDataset(Dataset):
                 arr = arr[key]
 
         arr = arr.astype(np.float32)
+        if arr.ndim != 2 or arr.shape[0] == 0 or arr.shape[1] < 3:
+            raise ValueError(f"Invalid point cloud array shape {arr.shape} from {p} (expect [N,>=3] and N>0).")
         if self.use_color:
             if arr.shape[-1] >= 6:
                 arr = arr[:, :6]
@@ -412,6 +422,9 @@ def main():
 
     args = parser.parse_args()
 
+    if args.bf16 and args.fp16:
+        raise ValueError("Choose at most one of `--bf16` and `--fp16`.")
+
     if args.lora_enable and not args.train_llm:
         raise ValueError("`--lora-enable` requires `--train-llm`.")
 
@@ -432,7 +445,7 @@ def main():
     qwen = Qwen3VLForConditionalGeneration.from_pretrained(
         args.model,
         attn_implementation=attn_impl,
-        dtype=(torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else None)),
+        torch_dtype=(torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else None)),
     )
     qwen.config.use_cache = False
 

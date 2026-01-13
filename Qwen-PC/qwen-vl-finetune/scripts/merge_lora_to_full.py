@@ -91,7 +91,7 @@ def main():
     base = Qwen3VLForConditionalGeneration.from_pretrained(
         base_id,
         attn_implementation=args.attn_implementation,
-        dtype=dtype,
+        torch_dtype=dtype,
         trust_remote_code=bool(args.trust_remote_code),
     )
     print(f"[Info] 加载 LoRA 适配器: {adapter_dir}")

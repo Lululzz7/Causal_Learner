@@ -94,6 +94,9 @@ def train(attn_implementation="flash_attention_2"):
     local_rank = training_args.local_rank
     os.makedirs(training_args.output_dir, exist_ok=True)
 
+    if bool(training_args.bf16) and bool(training_args.fp16):
+        raise ValueError("Choose at most one of `--bf16` and `--fp16`.")
+
     if not getattr(data_args, "dataset_use", "").strip():
         raise ValueError(
             "`--dataset_use` is required. Example: `--dataset_use mllm_data_test` "
@@ -111,7 +114,7 @@ def train(attn_implementation="flash_attention_2"):
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
             attn_implementation=attn_implementation,
-            dtype=(torch.bfloat16 if training_args.bf16 else None),
+            torch_dtype=(torch.bfloat16 if training_args.bf16 else (torch.float16 if training_args.fp16 else None)),
         )
         data_args.model_type = "qwen3vl"
     elif "qwen3" in model_args.model_name_or_path.lower():
@@ -119,7 +122,7 @@ def train(attn_implementation="flash_attention_2"):
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
             attn_implementation=attn_implementation,
-            dtype=(torch.bfloat16 if training_args.bf16 else None),
+            torch_dtype=(torch.bfloat16 if training_args.bf16 else (torch.float16 if training_args.fp16 else None)),
         )
         data_args.model_type = "qwen3vl"
     elif "qwen2.5" in model_args.model_name_or_path.lower():
@@ -127,7 +130,7 @@ def train(attn_implementation="flash_attention_2"):
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
             attn_implementation=attn_implementation,
-            dtype=(torch.bfloat16 if training_args.bf16 else None),
+            torch_dtype=(torch.bfloat16 if training_args.bf16 else (torch.float16 if training_args.fp16 else None)),
         )
         data_args.model_type = "qwen2.5vl"
     else:
@@ -135,7 +138,7 @@ def train(attn_implementation="flash_attention_2"):
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
             attn_implementation=attn_implementation,
-            dtype=(torch.bfloat16 if training_args.bf16 else None),
+            torch_dtype=(torch.bfloat16 if training_args.bf16 else (torch.float16 if training_args.fp16 else None)),
         )
         data_args.model_type = "qwen2vl"
 

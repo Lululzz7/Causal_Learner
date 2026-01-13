@@ -100,17 +100,20 @@ def main():
         if args.prompt is None:
             raise SystemExit("[ERROR] --prompt 为必填参数（单样本模式）。若使用批量评估，请提供 --data 以读取标注文件。")
 
+    if args.bf16 and args.fp16:
+        raise SystemExit("[ERROR] Choose at most one of --bf16 / --fp16.")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch_dtype = torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else None)
 
     # 1) 加载模型与处理器
     if args.attn_implementation:
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            args.model, attn_implementation=args.attn_implementation, dtype=torch_dtype
+            args.model, attn_implementation=args.attn_implementation, torch_dtype=torch_dtype
         ).to(device)
     else:
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            args.model, dtype=torch_dtype
+            args.model, torch_dtype=torch_dtype
         ).to(device)
     model.eval()
     processor = AutoProcessor.from_pretrained(args.model)

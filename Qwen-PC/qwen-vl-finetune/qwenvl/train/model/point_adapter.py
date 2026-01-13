@@ -24,24 +24,49 @@ def _infer_point_proj_out_dim_from_ckpt(ckpt_path: Optional[str]) -> Optional[in
             sd = sd["state_dict"]
         if not isinstance(sd, dict):
             return None
-        candidates: List[Tuple[int, torch.Tensor]] = []
+        # Typical formats we want to support:
+        # - "point_proj.weight" (nn.Linear)
+        # - "point_proj.0.weight", "point_proj.2.weight", ... (nn.Sequential)
+        # - "module.point_proj.weight" / "model.point_proj.0.weight" (wrapped)
+        numeric_candidates: List[Tuple[int, torch.Tensor]] = []
+        direct_weight: Optional[torch.Tensor] = None
+        fallback_weight: Optional[torch.Tensor] = None
+
         for k, v in sd.items():
-            if not k.startswith("point_proj.") or not k.endswith(".weight"):
+            if not isinstance(v, torch.Tensor):
                 continue
-            parts = k.split(".")
-            if len(parts) < 3:
+            if "point_proj" not in k or not k.endswith(".weight"):
                 continue
-            try:
-                idx = int(parts[1])
-            except Exception:
+
+            if "point_proj." in k:
+                rel = k.split("point_proj.", 1)[1]  # e.g. "0.weight" / "weight"
+                head = rel.split(".", 1)[0]
+                try:
+                    numeric_candidates.append((int(head), v))
+                    continue
+                except Exception:
+                    # non-numeric head
+                    if rel == "weight":
+                        direct_weight = v
+                        continue
+            elif k.endswith("point_proj.weight"):
+                direct_weight = v
                 continue
-            candidates.append((idx, v))
-        if not candidates:
-            return None
-        candidates.sort(key=lambda x: x[0])
-        last_weight = candidates[-1][1]
-        if last_weight.ndim >= 2:
-            return int(last_weight.shape[0])
+
+            if fallback_weight is None:
+                fallback_weight = v
+
+        if numeric_candidates:
+            numeric_candidates.sort(key=lambda x: x[0])
+            last_weight = numeric_candidates[-1][1]
+            return int(last_weight.shape[0]) if last_weight.ndim >= 2 else None
+
+        if direct_weight is not None:
+            return int(direct_weight.shape[0]) if direct_weight.ndim >= 2 else None
+
+        if fallback_weight is not None:
+            return int(fallback_weight.shape[0]) if fallback_weight.ndim >= 2 else None
+
         return None
     except Exception:
         return None

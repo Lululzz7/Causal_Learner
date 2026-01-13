@@ -118,7 +118,7 @@ def main() -> None:
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         args.model,
         attn_implementation=args.attn_implementation,
-        dtype=torch_dtype,
+        torch_dtype=torch_dtype,
     )
     processor = AutoProcessor.from_pretrained(args.model)
     model.to(device)

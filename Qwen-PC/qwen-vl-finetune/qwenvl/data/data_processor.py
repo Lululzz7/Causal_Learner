@@ -210,32 +210,62 @@ def preprocess_qwen_visual(
     base_path = Path(source.get("data_path", ""))
     messages = _build_messages(source, base_path)
 
-    full_result = processor.apply_chat_template(
-        messages, tokenize=True, return_dict=True, return_tensors="pt"
-    )
+    # Prefer `return_assistant_tokens_mask` when available (Transformers chat templates),
+    # falling back to the legacy token-id heuristic for older versions.
+    try:
+        full_result = processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            return_assistant_tokens_mask=True,
+        )
+    except TypeError:
+        full_result = processor.apply_chat_template(
+            messages, tokenize=True, return_dict=True, return_tensors="pt"
+        )
 
     input_ids = full_result["input_ids"]
     if isinstance(input_ids, list):
         input_ids = torch.tensor(input_ids).unsqueeze(0)
+        full_result["input_ids"] = input_ids
+
+    assistant_mask = full_result.pop("assistant_tokens_mask", None)
+    if assistant_mask is None:
+        assistant_mask = full_result.pop("assistant_mask", None)
 
     labels = torch.full_like(input_ids, IGNORE_INDEX)
-
-    input_ids_flat = input_ids[0].tolist()
-    L = len(input_ids_flat)
-    pos = 0
-    while pos < L:
-        if input_ids_flat[pos] == 77091:
-            ans_start = pos + 2
-            ans_end = ans_start
-            while ans_end < L and input_ids_flat[ans_end] != 151645:
-                ans_end += 1
-            if ans_end < L:
-                labels[0, ans_start : ans_end + 2] = input_ids[0, ans_start : ans_end + 2]
-                pos = ans_end
-        pos += 1
+    if assistant_mask is not None:
+        if isinstance(assistant_mask, list):
+            assistant_mask = torch.tensor(assistant_mask)
+        if isinstance(assistant_mask, torch.Tensor):
+            if assistant_mask.ndim == 1:
+                assistant_mask = assistant_mask.unsqueeze(0)
+            assistant_mask = assistant_mask.to(device=input_ids.device).to(dtype=torch.bool)
+            if assistant_mask.shape != input_ids.shape:
+                raise ValueError(
+                    f"assistant mask shape {tuple(assistant_mask.shape)} does not match input_ids shape {tuple(input_ids.shape)}"
+                )
+            labels[assistant_mask] = input_ids[assistant_mask]
+        else:
+            raise TypeError(f"Unexpected assistant mask type: {type(assistant_mask)}")
+    else:
+        # Legacy heuristic (kept for backward compatibility): find assistant spans by special token ids.
+        input_ids_flat = input_ids[0].tolist()
+        L = len(input_ids_flat)
+        pos = 0
+        while pos < L:
+            if input_ids_flat[pos] == 77091:
+                ans_start = pos + 2
+                ans_end = ans_start
+                while ans_end < L and input_ids_flat[ans_end] != 151645:
+                    ans_end += 1
+                if ans_end < L:
+                    labels[0, ans_start : ans_end + 2] = input_ids[0, ans_start : ans_end + 2]
+                    pos = ans_end
+            pos += 1
 
     full_result["labels"] = labels
-    full_result["input_ids"] = input_ids
     return full_result
 
 
