@@ -85,6 +85,28 @@ task28可以用原始的多个step的plan，随机修改其中的一个step plan
   - Q: Which event happens earlier in the video, A or B?
   - A (label): `A` / `B`
 
+### SS04_Tool_vs_Material_Check（工具/材料角色判别；对应 Task_04 的二分类变体）
+
+- **证据**：`video_clip`（step clip；优先覆盖该 step 执行过程）
+- **字段来源（JSONPath）**：
+  - `steps[s].tool_and_material_usage.tools`
+  - `steps[s].tool_and_material_usage.materials`
+- **标签**：`Yes/No`
+- **样本构造（推荐）**：
+  1) 采样一个 step。
+  2) 取该 step 的一个工具/材料候选名词 `x`，并尽量让问题“依赖看视频”：
+     - 正样本：`x` 取自 `tools`（问 tool）或 `materials`（问 material）
+     - 弱负样本：`x` 取自同 item 的其他 step（或交换 tool/material 身份），并写 `meta.neg_sample=true`
+  3) 问法随机二选一：
+     - “Is x a tool used by the agent in this clip?” → label = `x ∈ tools`
+     - “Is x a material being acted on in this clip?” → label = `x ∈ materials`
+- **问答模板（示例）**：
+  - Evidence: `<VIDEO_CLIP_PATH>`
+  - Q: In this clip, is `<x>` a tool used by the agent?
+  - A (label): `Yes` / `No`
+- **注意**：
+  - 当 `tools` 为空时，建议在数据构造时补上 `hands`（与主规范一致），否则该任务会退化。
+
   ### SS05_Step_Goal_Matching_MC（关键帧对应 step_goal 四选一；对应 Task_10 的严格可评分变体）
 
 - **证据**：`keyframe_single`（优先 `critical_frames[0]`）
@@ -104,3 +126,131 @@ task28可以用原始的多个step的plan，随机修改其中的一个step plan
     - C) `<goal_c>`
     - D) `<goal_d>`
   - A (label): `A` / `B` / `C` / `D`
+
+#### C) Task_09 与 Task_18
+
+- **现象**：都聚焦 precondition，但 Task_18 是视觉核验（三态）。
+- **问题**：Task_09 容易变成“复述 JSON 列表”，不要求证据闭环。
+- **建议**：
+  - 主线：**保留 Task_18**（三态核验更 grounded）。
+  - Task_09：降权/删除；若保留，务必要求 “仅输出可观测的前置条件 + 不可观测必须标注 not directly observable”。
+  我觉得应该将两个任务都删除。然后执行step的action的spatial和affordance的precondition然后多选题进行选择
+
+  #### D) Task_11 与 Task_19
+
+- **现象**：都围绕 effect/postcondition。
+- **问题**：Task_11 偏“期望复述”，而 effect 往往不可见（clean/ready 等），噪声大。
+- **建议**：
+  - **保留 Task_19**（证据核验），Task_11 降权/删除。
+  - 若要保留 Task_11：建议仅保留 spatial 类 effect（如 on_top_of/inside/open/closed），减少 affordance/属性类不可观测 effect。
+
+  #### Task_06（Holistic Causal Chain）和 #### Task_16（Physical Feasibility）需要重新组织设置一下
+
+### Task_31_Keyframe_to_StepGoal_Matching（关键帧→步骤匹配，MCQ/分类）
+
+- **动机**：把“关键帧语义”与 “step_goal” 强绑定，且天然可做强负样本。
+- **字段来源（JSONPath）**：
+  - 正例：`steps[i].step_goal`
+  - 候选池：同 item 的 `steps[*].step_goal`（或跨 item 扩展）
+- **证据**：`keyframe_single`（选 `steps[i].critical_frames[0]` 或 `[-1]`）
+- **构造规则**：
+  - 输入：一张关键帧图 + K 个候选 step_goal（K=4/6）。
+  - 输出：选项字母或 `step_id`（固定格式便于评分）。
+- **负样本**：
+  - 同 item 的其它 step_goal（hard negatives），或同场景同类动作的跨 item step_goal（harder
+
+### Task_32_Init_vs_Complete_Keyframe_Order（同一步两关键帧阶段判别）
+
+- **动机**：利用 Stage3 “两关键帧递增顺序” 的结构化监督，形成强时序/状态变化学习信号。
+- **字段来源**：`steps[i].critical_frames[0]` 与 `[1]` 的图像（标签：initiation vs completion）。
+- **证据**：`keyframe_pair`（两张关键帧图，顺序可打乱）
+- **输出**：`A_is_initiation` / `B_is_initiation`（二分类）
+- **注意**：不要暴露 `frame_index`。
+
+### Task_33_Hotspot_AffordanceType_MCQ（热点可供性类别选择题）
+
+- **字段来源**：`steps[i].critical_frames[j].interaction.hotspot.affordance_type`
+- **证据**：`keyframe_single`
+- **输出**：从 4 选 1 的 `affordance_type` 里选正确项
+- **负样本构造**：
+  - 来自其它关键帧的 affordance_type；或从同关键帧 hotspot.mechanism 语义近但类别不同的项做 hard negative。
+
+### Task_34_Hotspot_Mechanism_MCQ（热点物理机制选择题）
+
+- **字段来源**：`steps[i].critical_frames[j].interaction.hotspot.mechanism`
+- **证据**：`keyframe_single`
+- **输出**：4 选 1（机制句子，建议做短句标准化）
+- **工程建议**：先把 mechanism 做轻量模板化（如 “force_transfer/friction/leverage/fluid_flow/heat_transfer/…” + 一句解释），否则自由文本难当 label。
+
+### Task_35_Action_Phrase_MCQ（`causal_chain.action` 选择题）
+
+- **字段来源**：
+  - keyframe-level：`steps[i].critical_frames[j].causal_chain.action`
+  - step-level：`steps[i].causal_chain.action`
+- **证据**：`keyframe_single`（更 grounded）
+- **输出**：4 选 1（动作短语）
+- **价值**：补齐当前任务集中对 `action` 字段利用不足的问题。
+
+### Task_36_Patient_Identification_MCQ（受事对象选择题）
+
+- **字段来源**：`steps[i].critical_frames[j].causal_chain.patient`
+- **证据**：`keyframe_single`
+- **候选池**：来自 Task_01 的对象锚点集合（同 item 去重后的 objects/tools/materials）
+- **输出**：多选或单选（取决于 patient 是否单实体）
+
+### Task_37_Step_vs_Keyframe_CausalChain_Consistency（步级↔关键帧因果链一致性判别）
+
+- **动机**：直接训练 “同一步的 step-level 因果链” 与 “关键帧级因果链” 的一致性，构造强负样本。
+- **字段来源**：
+  - 正例：`steps[i].causal_chain` 与 `steps[i].critical_frames[j].causal_chain`
+  - 负例：把 `critical_frames[j].causal_chain` 替换为其它 step 的 causal_chain（或只替换 patient/action）
+- **证据**：`keyframe_single` +（可选）step_goal
+- **输出**：`consistent / inconsistent / not directly observable`
+- **评分**：自动评分；负样本可控。
+
+### Task_38_Spatial_Postcondition_Check（空间后置状态核验，Yes/No/Uncertain）
+
+- **字段来源**：`steps[i].causal_chain.causal_effect_on_spatial[*].relation/objects/truth`
+- **证据**：step i 的最后关键帧（或 step clip 抽帧）
+- **输出**：对每条 effect 输出 `supported / contradicted / not observable`
+- **价值**：比 Task_11 的“复述效果”更 grounded、更可评测。
+
+### Task_39_Affordance_Postcondition_Check（可供性后置状态核验）
+
+- **字段来源**：`steps[i].causal_chain.causal_effect_on_affordance[*].object_name/affordance_types`
+- **证据**：step-end 关键帧（注意很多 affordance 不可见）
+- **输出**：同 Task_38 三态
+- **建议**：优先选择“可见状态类 affordance”（如 open/closed/inserted/holding），避免纯功能性不可见标签。
+
+### Task_40_Counterfactual_Outcome_MCQ（反事实结果选择题）
+
+- **字段来源**：`steps[i].counterfactual_challenge_question` 与 `expected_challenge_outcome`
+- **证据**：关键帧（或 step clip 抽帧）
+- **输出**：4 选 1 outcome
+- **负样本**：来自其它 step 的 outcome，或相同工具/材料但机制不同的 outcome（hard negative）。
+
+### Task_41_Recovery_Strategy_MCQ（失败恢复策略选择题）
+
+- **字段来源**：`steps[i].failure_reflecting.recovery_strategy`
+- **证据**：关键帧（或 prefix 到该步）
+- **输出**：4 选 1 strategy
+- **价值**：把失败反思从自由文本变成客观题，更可评测、更稳定。
+
+### Task_42_Prefix_Completed_Steps_MultiSelect（前缀已完成步骤多选）
+
+- **动机**：替代 Task_25 的开放式总结，用可评分的多选形式衡量“长时序进度理解”。
+- **字段来源**：`steps[0..i].step_goal`（作为 gold；不要塞进输入）
+- **证据**：`video_prefix`（到 step i 的尾帧）
+- **输出**：从候选 step_goal 列表中选出“已完成”的集合（或输出最大已完成 step_id）。
+- **负样本**：候选中混入未来 step_goal。
+
+### Task_43_Stage2_Temporal_Localization_Check（可选：基于 Stage2 的客观时间定位）
+
+仅当 item 内存在可读的 Stage2 产物（例如 stage2 的 JSON/manifest 可取）时启用：
+
+- **字段来源**：`stage2` 预测的 `start_frame_index/end_frame_index`
+- **证据**：全视频 `sampled_frames/`（或其抽帧子集）
+- **输出**：预测/核验某一步的边界索引（更严格、更客观）
+
+---
+
