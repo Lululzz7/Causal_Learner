@@ -1,4 +1,4 @@
-# mani_longvideo 多模态任务划分规划 v5（面向长视频：JSON + 关键帧 + 均匀抽帧 + Step 间片段 + 累积前缀长视频）
+# mani_longvideo 多模态任务划分规划（面向长视频：JSON + 关键帧 + 均匀抽帧 + Step 间片段 + 累积前缀长视频）
 
 本文档目标：在 `mani_longvideo.py` 或 `three_stage/pipeline.py` 生成的单视频输出目录内，利用以下数据源：
 
